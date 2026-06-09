@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stage 4 — Multi-Agent Legal System Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+
+  header { background: #1a1d2e; border-bottom: 1px solid #2d3148; padding: 20px 40px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 1.4rem; font-weight: 700; color: #a78bfa; }
+  header span { font-size: 0.85rem; color: #64748b; }
+
+  .container { max-width: 1200px; margin: 0 auto; padding: 32px 24px; }
+
+  .question-box { background: #1e2235; border: 1px solid #3b4263; border-radius: 12px; padding: 20px 24px; margin-bottom: 32px; }
+  .question-box label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; margin-bottom: 8px; display: block; }
+  .question-box textarea { width: 100%; background: #13162a; border: 1px solid #3b4263; border-radius: 8px; color: #e2e8f0; font-size: 0.95rem; padding: 12px 16px; resize: vertical; min-height: 72px; font-family: inherit; }
+  .question-box textarea:focus { outline: none; border-color: #7c3aed; }
+  .run-btn { margin-top: 12px; background: #7c3aed; color: white; border: none; border-radius: 8px; padding: 10px 24px; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+  .run-btn:hover { background: #6d28d9; }
+  .run-btn:disabled { background: #3b4263; cursor: not-allowed; }
+
+  /* Graph layout */
+  .graph { display: flex; flex-direction: column; align-items: center; gap: 0; }
+
+  .layer { display: flex; justify-content: center; align-items: center; gap: 48px; position: relative; }
+  .layer + .layer { margin-top: 0; }
+
+  .connector-v { width: 2px; height: 40px; background: #3b4263; margin: 0 auto; transition: background 0.4s; }
+  .connector-v.active { background: #7c3aed; box-shadow: 0 0 8px #7c3aed88; }
+
+  .connector-fork { display: flex; justify-content: center; position: relative; height: 48px; width: 520px; }
+  .connector-fork::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 50%;
+    width: 2px; height: 48px;
+    background: #3b4263;
+    transform: translateX(-50%);
+    transition: background 0.4s;
+  }
+  .connector-fork.active::before { background: #7c3aed; box-shadow: 0 0 8px #7c3aed88; }
+  .connector-fork::after {
+    content: '';
+    position: absolute;
+    top: 48px; left: calc(50% - 200px);
+    width: 400px; height: 2px;
+    background: #3b4263;
+    transition: background 0.4s;
+  }
+  .connector-fork.active::after { background: #7c3aed; box-shadow: 0 0 8px #7c3aed88; }
+
+  .connector-merge { display: flex; justify-content: center; position: relative; height: 48px; width: 520px; }
+  .connector-merge::after {
+    content: '';
+    position: absolute;
+    top: 0; left: calc(50% - 200px);
+    width: 400px; height: 2px;
+    background: #3b4263;
+    transition: background 0.4s;
+  }
+  .connector-merge.active::after { background: #7c3aed; box-shadow: 0 0 8px #7c3aed88; }
+  .connector-merge::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 50%;
+    width: 2px; height: 48px;
+    background: #3b4263;
+    transform: translateX(-50%);
+    transition: background 0.4s;
+  }
+  .connector-merge.active::before { background: #7c3aed; box-shadow: 0 0 8px #7c3aed88; }
+
+  /* Node cards */
+  .node {
+    background: #1e2235;
+    border: 2px solid #3b4263;
+    border-radius: 12px;
+    padding: 16px 20px;
+    min-width: 200px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    position: relative;
+  }
+  .node:hover { border-color: #7c3aed; transform: translateY(-2px); }
+  .node .node-icon { font-size: 1.5rem; margin-bottom: 6px; }
+  .node .node-name { font-size: 0.85rem; font-weight: 700; color: #c4b5fd; letter-spacing: 0.03em; }
+  .node .node-desc { font-size: 0.72rem; color: #64748b; margin-top: 4px; }
+  .node .node-status { font-size: 0.7rem; margin-top: 8px; padding: 2px 10px; border-radius: 20px; display: inline-block; background: #1a1d2e; color: #64748b; }
+
+  .node.idle { border-color: #3b4263; }
+  .node.running {
+    border-color: #f59e0b;
+    box-shadow: 0 0 16px #f59e0b44;
+    animation: pulse 1s infinite;
+  }
+  .node.done { border-color: #10b981; box-shadow: 0 0 12px #10b98144; }
+  .node.error { border-color: #ef4444; box-shadow: 0 0 12px #ef444444; }
+  .node.running .node-status { background: #f59e0b22; color: #f59e0b; }
+  .node.done .node-status { background: #10b98122; color: #10b981; }
+  .node.error .node-status { background: #ef444422; color: #ef4444; }
+
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 8px #f59e0b44; }
+    50% { box-shadow: 0 0 24px #f59e0b88; }
+  }
+
+  /* Parallel label */
+  .parallel-badge {
+    background: #1a1d2e;
+    border: 1px solid #3b4263;
+    border-radius: 20px;
+    padding: 3px 12px;
+    font-size: 0.68rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 8px 0;
+  }
+
+  /* Log panel */
+  .log-panel { margin-top: 40px; background: #0d1117; border: 1px solid #3b4263; border-radius: 12px; overflow: hidden; }
+  .log-header { background: #1e2235; padding: 12px 20px; font-size: 0.8rem; color: #64748b; display: flex; justify-content: space-between; align-items: center; }
+  .log-body { padding: 16px 20px; min-height: 120px; max-height: 300px; overflow-y: auto; font-family: 'Fira Code', 'Consolas', monospace; font-size: 0.8rem; line-height: 1.7; }
+  .log-line { display: flex; gap: 12px; }
+  .log-time { color: #3b4263; min-width: 60px; }
+  .log-level-info { color: #7c3aed; }
+  .log-level-done { color: #10b981; }
+  .log-level-parallel { color: #f59e0b; }
+  .log-level-error { color: #ef4444; }
+  .log-msg { color: #94a3b8; }
+
+  /* Detail modal */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: #000000bb; z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: #1e2235; border: 1px solid #3b4263; border-radius: 16px; max-width: 640px; width: 90%; max-height: 80vh; overflow-y: auto; padding: 28px; }
+  .modal h3 { color: #a78bfa; font-size: 1.1rem; margin-bottom: 16px; }
+  .modal pre { background: #0d1117; border-radius: 8px; padding: 16px; font-size: 0.78rem; color: #94a3b8; white-space: pre-wrap; word-break: break-word; line-height: 1.6; }
+  .modal-close { margin-top: 16px; background: #3b4263; border: none; border-radius: 8px; padding: 8px 20px; color: #e2e8f0; cursor: pointer; font-size: 0.85rem; }
+  .modal-close:hover { background: #4b5480; }
+
+  /* Timing bar */
+  .timing { margin-top: 32px; background: #1e2235; border: 1px solid #3b4263; border-radius: 12px; padding: 20px 24px; }
+  .timing h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; margin-bottom: 16px; }
+  .timing-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .timing-label { width: 180px; font-size: 0.8rem; color: #94a3b8; flex-shrink: 0; }
+  .timing-track { flex: 1; height: 8px; background: #0d1117; border-radius: 4px; overflow: hidden; }
+  .timing-bar { height: 100%; border-radius: 4px; width: 0; transition: width 0.6s ease; }
+  .timing-val { width: 48px; text-align: right; font-size: 0.78rem; color: #64748b; font-family: monospace; }
+
+  .bar-law { background: #7c3aed; }
+  .bar-routing { background: #0ea5e9; }
+  .bar-tax { background: #f59e0b; }
+  .bar-compliance { background: #10b981; }
+  .bar-aggregate { background: #ec4899; }
+  .bar-total { background: linear-gradient(90deg, #7c3aed, #ec4899); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Multi-Agent Legal System — Stage 4</h1>
+    <span>LangGraph StateGraph · In-Process · Parallel Execution</span>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Question input -->
+  <div class="question-box">
+    <label>Legal Question</label>
+    <textarea id="questionInput">If a company breaks a contract and avoids taxes, what are the legal and regulatory consequences?</textarea>
+    <button class="run-btn" id="runBtn" onclick="runDemo()">Run Multi-Agent Pipeline</button>
+  </div>
+
+  <!-- Agent graph visualization -->
+  <div class="graph" id="graph">
+
+    <!-- User input -->
+    <div class="layer">
+      <div class="node idle" id="node-user" onclick="showDetail('user')">
+        <div class="node-icon">👤</div>
+        <div class="node-name">User Input</div>
+        <div class="node-desc">Legal question</div>
+        <div class="node-status" id="status-user">idle</div>
+      </div>
+    </div>
+
+    <div class="connector-v" id="conn-user-law"></div>
+
+    <!-- analyze_law -->
+    <div class="layer">
+      <div class="node idle" id="node-analyze" onclick="showDetail('analyze')">
+        <div class="node-icon">⚖️</div>
+        <div class="node-name">analyze_law</div>
+        <div class="node-desc">Senior litigation attorney</div>
+        <div class="node-status" id="status-analyze">idle</div>
+      </div>
+    </div>
+
+    <div class="connector-v" id="conn-law-routing"></div>
+
+    <!-- check_routing -->
+    <div class="layer">
+      <div class="node idle" id="node-routing" onclick="showDetail('routing')">
+        <div class="node-icon">🔀</div>
+        <div class="node-name">check_routing</div>
+        <div class="node-desc">LLM-based router → JSON decision</div>
+        <div class="node-status" id="status-routing">idle</div>
+      </div>
+    </div>
+
+    <!-- Fork connectors -->
+    <div class="connector-fork" id="conn-fork"></div>
+    <div class="parallel-badge">Parallel Execution (LangGraph Send API)</div>
+
+    <!-- Tax + Compliance parallel -->
+    <div class="layer">
+      <div class="node idle" id="node-tax" onclick="showDetail('tax')">
+        <div class="node-icon">💰</div>
+        <div class="node-name">call_tax_specialist</div>
+        <div class="node-desc">ReAct agent · IRC § 7201<br>FBAR · FATCA</div>
+        <div class="node-status" id="status-tax">idle</div>
+      </div>
+      <div class="node idle" id="node-compliance" onclick="showDetail('compliance')">
+        <div class="node-icon">📋</div>
+        <div class="node-name">call_compliance_specialist</div>
+        <div class="node-desc">ReAct agent · SOX · SEC<br>FCPA · GDPR · CCPA</div>
+        <div class="node-status" id="status-compliance">idle</div>
+      </div>
+    </div>
+
+    <!-- Merge connectors -->
+    <div class="connector-merge" id="conn-merge"></div>
+
+    <!-- aggregate -->
+    <div class="layer">
+      <div class="node idle" id="node-aggregate" onclick="showDetail('aggregate')">
+        <div class="node-icon">🧠</div>
+        <div class="node-name">aggregate</div>
+        <div class="node-desc">Senior legal counsel · synthesise</div>
+        <div class="node-status" id="status-aggregate">idle</div>
+      </div>
+    </div>
+
+    <div class="connector-v" id="conn-agg-out"></div>
+
+    <!-- Final output -->
+    <div class="layer">
+      <div class="node idle" id="node-output" onclick="showDetail('output')">
+        <div class="node-icon">📄</div>
+        <div class="node-name">Final Answer</div>
+        <div class="node-desc">Comprehensive legal analysis</div>
+        <div class="node-status" id="status-output">idle</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Timing bars -->
+  <div class="timing" id="timingSection" style="display:none">
+    <h3>Execution Timeline</h3>
+    <div class="timing-row">
+      <div class="timing-label">analyze_law (LLM)</div>
+      <div class="timing-track"><div class="timing-bar bar-law" id="bar-law"></div></div>
+      <div class="timing-val" id="val-law">-</div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">check_routing (LLM)</div>
+      <div class="timing-track"><div class="timing-bar bar-routing" id="bar-routing"></div></div>
+      <div class="timing-val" id="val-routing">-</div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">tax_specialist (parallel)</div>
+      <div class="timing-track"><div class="timing-bar bar-tax" id="bar-tax"></div></div>
+      <div class="timing-val" id="val-tax">-</div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">compliance_specialist (parallel)</div>
+      <div class="timing-track"><div class="timing-bar bar-compliance" id="bar-compliance"></div></div>
+      <div class="timing-val" id="val-compliance">-</div>
+    </div>
+    <div class="timing-row">
+      <div class="timing-label">aggregate (LLM)</div>
+      <div class="timing-track"><div class="timing-bar bar-aggregate" id="bar-aggregate"></div></div>
+      <div class="timing-val" id="val-aggregate">-</div>
+    </div>
+    <div class="timing-row" style="margin-top:8px; border-top: 1px solid #3b4263; padding-top: 8px;">
+      <div class="timing-label" style="color:#e2e8f0; font-weight:700;">Total (sequential)</div>
+      <div class="timing-track"><div class="timing-bar bar-total" id="bar-total"></div></div>
+      <div class="timing-val" id="val-total" style="color:#e2e8f0;">-</div>
+    </div>
+  </div>
+
+  <!-- Log panel -->
+  <div class="log-panel">
+    <div class="log-header">
+      <span>Execution Log</span>
+      <span id="logCount">0 events</span>
+    </div>
+    <div class="log-body" id="logBody">
+      <div style="color:#3b4263; font-style:italic;">Click "Run Multi-Agent Pipeline" to start...</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Detail modal -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal">
+    <h3 id="modalTitle">Node Detail</h3>
+    <pre id="modalContent">No data yet. Run the pipeline first.</pre>
+    <button class="modal-close" onclick="closeModalDirect()">Close</button>
+  </div>
+</div>
+
+<script>
+const nodeData = {};
+const timings = {};
+let logCount = 0;
+let startTime = 0;
+
+function log(level, msg) {
+  logCount++;
+  const elapsed = startTime ? ((Date.now() - startTime) / 1000).toFixed(2) : '0.00';
+  const body = document.getElementById('logBody');
+  if (logCount === 1) body.innerHTML = '';
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML = `<span class="log-time">${elapsed}s</span><span class="log-level-${level}">[${level.toUpperCase()}]</span><span class="log-msg">${msg}</span>`;
+  body.appendChild(line);
+  body.scrollTop = body.scrollHeight;
+  document.getElementById('logCount').textContent = logCount + ' events';
+}
+
+function setNode(id, state, statusText) {
+  const node = document.getElementById('node-' + id);
+  const status = document.getElementById('status-' + id);
+  node.className = 'node ' + state;
+  status.textContent = statusText;
+}
+
+function setConn(id, active) {
+  const el = document.getElementById('conn-' + id);
+  if (el) el.classList.toggle('active', active);
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function randMs(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+async function animateBar(barId, valId, durationMs, maxTotalMs) {
+  const bar = document.getElementById(barId);
+  const val = document.getElementById(valId);
+  const pct = Math.min((durationMs / maxTotalMs) * 100, 100);
+  bar.style.width = pct + '%';
+  val.textContent = (durationMs / 1000).toFixed(1) + 's';
+}
+
+async function runDemo() {
+  const btn = document.getElementById('runBtn');
+  const question = document.getElementById('questionInput').value;
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+  logCount = 0;
+  startTime = Date.now();
+
+  // Reset all nodes
+  ['user','analyze','routing','tax','compliance','aggregate','output'].forEach(id => setNode(id, 'idle', 'idle'));
+  ['user-law','law-routing','fork','merge','agg-out'].forEach(id => setConn(id, false));
+  document.getElementById('timingSection').style.display = 'none';
+
+  Object.keys(nodeData).forEach(k => delete nodeData[k]);
+  document.getElementById('logBody').innerHTML = '';
+
+  log('info', 'Pipeline started');
+  log('info', `Question: "${question.substring(0, 60)}..."`);
+
+  // User input
+  setNode('user', 'done', 'sent');
+  nodeData.user = { label: 'User Input', content: question };
+
+  await sleep(400);
+  setConn('user-law', true);
+  await sleep(300);
+
+  // analyze_law
+  const t_law = randMs(2200, 3200);
+  setNode('analyze', 'running', 'running...');
+  log('info', 'analyze_law — senior litigation attorney analysing...');
+  timings.law = t_law;
+  await sleep(t_law);
+  setNode('analyze', 'done', `done (${(t_law/1000).toFixed(1)}s)`);
+  nodeData.analyze = {
+    label: 'analyze_law — Law Analysis',
+    content: `[System Prompt]\nYou are a senior corporate litigation attorney specialising in contract law, tort law, and general business law.\n\n[Output]\nThe question involves two distinct legal violations:\n\n1. CONTRACT BREACH — The company may face:\n   - Expectation damages to put the non-breaching party in position they would have been (UCC Art. 2)\n   - Consequential damages for foreseeable losses (Hadley v. Baxendale, 1854)\n   - Potential specific performance if unique subject matter\n   - Statute of limitations: 4 years (UCC § 2-725)\n\n2. TAX AVOIDANCE/EVASION — This triggers separate legal exposure under IRC and potential criminal liability.\n\n3. REGULATORY RISK — Depending on the company's industry, SEC and SOX obligations may apply.`
+  };
+  log('done', `analyze_law completed (${(t_law/1000).toFixed(1)}s)`);
+
+  await sleep(200);
+  setConn('law-routing', true);
+  await sleep(300);
+
+  // check_routing
+  const t_routing = randMs(1000, 1800);
+  setNode('routing', 'running', 'running...');
+  log('info', 'check_routing — LLM determining specialist needs...');
+  timings.routing = t_routing;
+  await sleep(t_routing);
+  setNode('routing', 'done', `{"needs_tax": true, "needs_compliance": true}`);
+  nodeData.routing = {
+    label: 'check_routing — Routing Decision',
+    content: `[Prompt]\nYou are a legal routing expert. Reply with ONLY valid JSON:\n{"needs_tax": <true|false>, "needs_compliance": <true|false>}\n\n[LLM Output (raw)]\n{"needs_tax": true, "needs_compliance": true}\n\n[Parsed]\nneeds_tax = true  → Dispatching Tax Specialist\nneeds_compliance = true → Dispatching Compliance Specialist\n\n[Note]\nBoth agents will run IN PARALLEL via LangGraph Send API`
+  };
+  log('info', 'Routing decision: needs_tax=true, needs_compliance=true');
+
+  await sleep(200);
+  setConn('fork', true);
+  await sleep(300);
+
+  // Parallel execution
+  log('parallel', 'Dispatching Tax + Compliance agents IN PARALLEL (Send API)...');
+  setNode('tax', 'running', 'running...');
+  setNode('compliance', 'running', 'running...');
+
+  const t_tax = randMs(2000, 3000);
+  const t_compliance = randMs(2000, 3000);
+  timings.tax = t_tax;
+  timings.compliance = t_compliance;
+
+  log('info', 'call_tax_specialist — IRC § 7201, FBAR, FATCA analysis...');
+  log('info', 'call_compliance_specialist — SOX, FCPA, GDPR, CCPA analysis...');
+
+  // Run in parallel (visual)
+  await Promise.all([
+    (async () => {
+      await sleep(t_tax);
+      setNode('tax', 'done', `done (${(t_tax/1000).toFixed(1)}s)`);
+      nodeData.tax = {
+        label: 'call_tax_specialist — Tax Analysis',
+        content: `[System Prompt]\nYou are a specialist tax attorney and CPA with expertise in corporate tax law, IRS enforcement, penalties under IRC §§ 6651/6662/6663, FBAR/FATCA requirements.\n\n[Tool Called] search_tax_law("overseas tax evasion penalties")\n\n[Tool Result]\nTax evasion (26 U.S.C. § 7201): felony, up to $250K fine and 5 years prison.\nCivil fraud penalty: 75% of underpayment (IRC § 6663).\nFBAR penalties: up to $100K or 50% of account balance per violation.\n\n[Final Answer]\nThe company faces substantial tax liability:\n1. Civil penalties: 75% fraud penalty on underpayment\n2. Criminal exposure: up to $250K + 5 years (if willful)\n3. FBAR violations: up to $100K per unreported account\n4. FATCA: 30% withholding on US-source payments\n5. Officers may be personally liable as "responsible persons"`
+      };
+      log('done', `call_tax_specialist completed (${(t_tax/1000).toFixed(1)}s)`);
+    })(),
+    (async () => {
+      await sleep(t_compliance);
+      setNode('compliance', 'done', `done (${(t_compliance/1000).toFixed(1)}s)`);
+      nodeData.compliance = {
+        label: 'call_compliance_specialist — Compliance Analysis',
+        content: `[System Prompt]\nYou are a senior regulatory compliance officer with expertise in SEC enforcement, SOX compliance, FTC regulations, FCPA, AML/BSA, GDPR, CCPA.\n\n[Tool Called] search_compliance_law("SEC SOX contract violation regulatory")\n\n[Tool Result]\nSOX § 906: false certification — up to $5M fine, 20 years prison.\n§ 802: record destruction — up to 20 years.\nFCPA anti-bribery: up to $250K/violation (individuals), $2M (corporations).\n\n[Final Answer]\nRegulatory exposure includes:\n1. SOX compliance failures: potential SEC investigation, officer/director bars\n2. FTC Act Section 5: unfair/deceptive trade practices\n3. If publicly traded: mandatory SEC disclosure of material legal proceedings\n4. Depending on industry: FCPA, AML/BSA obligations may apply\n5. D&O insurance claims may be triggered`
+      };
+      log('done', `call_compliance_specialist completed (${(t_compliance/1000).toFixed(1)}s)`);
+    })()
+  ]);
+
+  log('info', 'Both parallel agents finished — proceeding to aggregate');
+
+  await sleep(200);
+  setConn('merge', true);
+  await sleep(300);
+
+  // aggregate
+  const t_agg = randMs(2000, 2800);
+  setNode('aggregate', 'running', 'running...');
+  log('info', 'aggregate — senior legal counsel synthesising all analyses...');
+  timings.aggregate = t_agg;
+  await sleep(t_agg);
+  setNode('aggregate', 'done', `done (${(t_agg/1000).toFixed(1)}s)`);
+  nodeData.aggregate = {
+    label: 'aggregate — Final Synthesis',
+    content: `[Input sections]\n## Legal Analysis (from analyze_law)\n## Tax Analysis (from call_tax_specialist)\n## Regulatory Compliance Analysis (from call_compliance_specialist)\n\n[System Prompt]\nYou are a senior legal counsel synthesising specialist analyses into a comprehensive response.\n\n[Final Answer]\n## Legal Consequences for Contract Breach + Tax Avoidance\n\n### Contract Liability\n- Expectation and consequential damages under UCC Article 2\n- Potential specific performance; SOL: 4 years (§ 2-725)\n\n### Tax Liability\n- Civil fraud penalty: 75% of underpayment (IRC § 6663)\n- Criminal: up to $250,000 + 5 years (26 U.S.C. § 7201)\n- FBAR violations if offshore accounts involved\n\n### Regulatory Consequences\n- SOX obligations if publicly traded\n- SEC disclosure requirements for material proceedings\n- D&O insurance implications\n\n*Disclaimer: This analysis is educational. Consult licensed attorneys for your specific situation.*`
+  };
+  log('done', `aggregate completed (${(t_agg/1000).toFixed(1)}s)`);
+
+  await sleep(200);
+  setConn('agg-out', true);
+  await sleep(300);
+
+  // Output
+  setNode('output', 'done', 'complete');
+  nodeData.output = nodeData.aggregate;
+
+  const totalMs = Date.now() - startTime;
+  log('done', `Pipeline complete! Total elapsed: ${(totalMs/1000).toFixed(1)}s`);
+  log('info', `Parallel savings: ~${Math.min(t_tax, t_compliance) / 1000 - Math.max(t_tax, t_compliance) / 1000 > 0 ? 0 : ((Math.abs(t_tax - t_compliance))/1000).toFixed(1)}s saved by parallelism`);
+
+  // Show timing bars
+  const maxTotal = t_law + t_routing + Math.max(t_tax, t_compliance) + t_agg;
+  document.getElementById('timingSection').style.display = 'block';
+  setTimeout(() => {
+    animateBar('bar-law', 'val-law', t_law, maxTotal);
+    animateBar('bar-routing', 'val-routing', t_routing, maxTotal);
+    animateBar('bar-tax', 'val-tax', t_tax, maxTotal);
+    animateBar('bar-compliance', 'val-compliance', t_compliance, maxTotal);
+    animateBar('bar-aggregate', 'val-aggregate', t_agg, maxTotal);
+    animateBar('bar-total', 'val-total', totalMs, maxTotal + 2000);
+  }, 100);
+
+  btn.disabled = false;
+  btn.textContent = 'Run Again';
+}
+
+function showDetail(id) {
+  const data = nodeData[id];
+  document.getElementById('modalTitle').textContent = data ? data.label : 'Node: ' + id;
+  document.getElementById('modalContent').textContent = data ? data.content : 'No data yet. Run the pipeline first.';
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function closeModal(e) {
+  if (e.target === document.getElementById('modalOverlay')) closeModalDirect();
+}
+function closeModalDirect() {
+  document.getElementById('modalOverlay').classList.remove('open');
+}
+</script>
+</body>
+</html>
